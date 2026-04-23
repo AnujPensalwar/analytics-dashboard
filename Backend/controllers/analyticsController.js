@@ -1,85 +1,170 @@
 const db = require("../db");
-const { fetchGAData } = require("../services/gaService");
+const { fetchGAData, fetchBehaviorData } = require("../services/gaService");
 const { fetchClarityData } = require("../services/clarityService");
 const { normalizeData } = require("../services/normalizeService");
-const { fetchBehaviorData } = require("../services/gaService");
+
 
 
 exports.getAnalytics = async (req, res) => {
   try {
- const { startDate, endDate } = req.query;
+    const { startDate, endDate } = req.query;
+
     const gaData = await fetchGAData(startDate, endDate);
+    const behaviorData = await fetchBehaviorData(startDate, endDate);
     const clarityData = await fetchClarityData();
-    const behavior = await fetchBehaviorData();
-    const finalData = normalizeData(gaData, clarityData);
+    const finalData = normalizeData(gaData, behaviorData, clarityData);
 
-    const query = `
-     INSERT INTO analytics_data 
-(date, active_users, total_users, sessions, page_views, bounce_rate, avg_duration, behavior_bounce_rate)
-VALUES (CURDATE(), ?, ?, ?, ?, ?, ?, ?)
-    `;
+    // 1. GA Metrics
+    db.query(
+      `INSERT INTO ga_metrics 
+      (date, active_users, total_users, sessions, page_views, bounce_rate)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        finalData.date,
+        finalData.activeUsers,
+        finalData.totalUsers,
+        finalData.sessions,
+        finalData.pageViews,
+        finalData.bounceRate
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
 
-   db.query(
-  query,
-  [
-    finalData.activeUsers,
-    finalData.totalUsers,
-    finalData.sessions,
-    finalData.pageViews,
-    finalData.bounceRate,
-    behavior.avgSessionDuration,
-    behavior.bounceRate
-  ],
-  (err, result) => {
-    if (err) {
-      console.log("DB ERROR:", err);
-      return res.status(500).json({ error: err.message });
-    }
+        // 2. GA Behavior
+        db.query(
+          `INSERT INTO ga_behavior 
+          (date, avg_session_duration, bounce_rate)
+          VALUES (?, ?, ?)`,
+          [
+            finalData.date,
+            finalData.avgSessionDuration,
+            finalData.behaviorBounceRate
+          ],
+          (err) => {
+            if (err) return res.status(500).json(err);
 
-    res.json(finalData);
-  }
-);
+            // 3. Clarity
+             if (
+      clarityData &&
+      (clarityData.scrollDepth !== 0 || clarityData.clicks !== 0)
+    ) {
+      db.query(
+              `INSERT INTO clarity_metrics 
+              (date, clicks, scroll_depth, recordings, heatmaps)
+              VALUES (?, ?, ?, ?, ?)`,
+              [
+                finalData.date,
+                finalData.clicks,
+                finalData.scrollDepth,
+                finalData.recordings,
+                finalData.heatmaps
+              ],
+              (err) => {
+                if (err) return res.status(500).json(err);
+
+                res.json({
+                  message: "Data stored successfully",
+                  finalData
+                });
+              }
+            );
+          }
+        }
+        );
+      }
+    );
 
   } catch (err) {
-    console.error("ERROR IN CONTROLLER:", err); 
+    console.error(err);
     res.status(500).json(err);
   }
 };
 
+
+
+// ======================================================
+// 🔹 DASHBOARD (GA TABLE DATA)
+// ======================================================
 exports.getDashboard = (req, res) => {
   const { startDate, endDate } = req.query;
 
-  let query = "SELECT * FROM analytics_data";
+  const today = new Date();
+const last7Days = new Date();
+last7Days.setDate(today.getDate() - 7);
 
-  if (startDate && endDate) {
-    query += ` WHERE date BETWEEN '${startDate}' AND '${endDate}'`;
-  }
+const start = startDate 
+  ? startDate + " 00:00:00"
+  : "2000-01-01 00:00:00";
 
-  db.query(query, (err, results) => {
-    if (err) throw err;
-    res.json(results);
-  });
+const end = endDate 
+  ? endDate + " 23:59:59"
+  : "2100-01-01 23:59:59";
+
+  db.query(
+    `SELECT DATE(date) as date,
+            total_users as users,
+            sessions,
+            page_views as views,
+            bounce_rate as bounce
+     FROM ga_metrics
+     WHERE date BETWEEN ? AND ?
+     ORDER BY id ASC`,
+    [start, end],
+    (err, gaRows) => {
+      if (err) return res.status(500).json(err);
+
+      res.json({
+        tableData: gaRows
+      });
+    }
+  );
 };
 
-exports.getBehavior = async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
 
-    const data = await fetchBehaviorData(startDate, endDate);
 
-    res.json(data);
+// ======================================================
+// 🔹 BEHAVIOR (GA BEHAVIOR)
+// ======================================================
+exports.getBehavior = (req, res) => {
+  db.query(
+    `SELECT avg_session_duration, bounce_rate
+     FROM ga_behavior
+     ORDER BY id DESC LIMIT 1`,
+    (err, behaviorRows) => {
+      if (err) return res.status(500).json(err);
 
-  } catch (err) {
-    console.error("ERROR IN CONTROLLER:", err); 
-    res.status(500).json(err);
-  }
+      res.json({
+        behaviorInsights: {
+          sessionDuration: behaviorRows[0]?.avg_session_duration || 0,
+          bounceRate: behaviorRows[0]?.bounce_rate || 0
+        }
+      });
+    }
+  );
 };
 
+
+
+// ======================================================
+// 🔹 CLICKS (CLARITY)
+// ======================================================
 exports.getClicks = (req, res) => {
-  res.json({
-    clicks: 320,
-    scrollDepth: 70,
-    recordings: 10,
-    heatmaps: 5
-  });
+  db.query(
+    `SELECT clicks, scroll_depth, recordings, heatmaps
+     FROM clarity_metrics
+     ORDER BY id DESC LIMIT 1`,
+    (err, clarityRows) => {
+      if (err) return res.status(500).json(err);
+
+      res.json({
+        userBehavior: {
+          clicks: Number(clarityRows[0]?.clicks || 0),            // 👈 FIX
+          scrollDepth: Number(clarityRows[0]?.scroll_depth || 0), // 👈 FIX
+          recordings: Number(clarityRows[0]?.recordings || 0),
+          heatmaps: Number(clarityRows[0]?.heatmaps || 0)
+        }
+      });
+    }
+  );
 };
+

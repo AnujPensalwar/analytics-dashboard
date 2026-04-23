@@ -1,41 +1,47 @@
 const axios = require("axios");
 
-const API_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjQ4M0FCMDhFNUYwRDMxNjdEOTRFMTQ3M0FEQTk2RTcyRDkwRUYwRkYiLCJ0eXAiOiJKV1QifQ.eyJqdGkiOiJlMjViMmRlYi1hMTI5LTRhMGEtYmUwZS1jZTcxYjZmODkzMWYiLCJzdWIiOiIzMjgzMDYxNDI3MDkxNzg4Iiwic2NvcGUiOiJEYXRhLkV4cG9ydCIsIm5iZiI6MTc3NjIwMTUyNCwiZXhwIjo0OTI5ODAxNTI0LCJpYXQiOjE3NzYyMDE1MjQsImlzcyI6ImNsYXJpdHkiLCJhdWQiOiJjbGFyaXR5LmRhdGEtZXhwb3J0ZXIifQ.c60LhrrwPkji8S-fWf4y_AzGLGG8SGziwMGw1P7ueG8GtU6zIVi7TpanZhgoKPVb5i5gkvnhw91_39ZQNZ-qFGmUUUJfOnhOfhsCSLwk5lz9jOFrdXQs3bvdSsysAAt-o8aJwSNziKqo6DhV1m5mbafnuKQ7M5vjJcR6KubcT_H5_kTrUT1mkxbkP5UMV318d449gbJp_qc4wn0Oe7xmqchvVIj8so2b2Em717fA2XyhPMP0stvPNNSmafTaXheDC-dOyxGzxkuZc3GTdGG7pYOKFMxs2AXST5iCkx58FApAjhZg6gNfBZzog8sAx9ox2nBj3R7ulRM7erMTeDPQpQ";
-const PROJECT_ID = "wbqxljk11o";
+const API_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjQ4M0FCMDhFNUYwRDMxNjdEOTRFMTQ3M0FEQTk2RTcyRDkwRUYwRkYiLCJ0eXAiOiJKV1QifQ.eyJqdGkiOiI5MDdhYTY0ZC03NTE2LTRiZjAtYjU0Yy1jYzk0YTI4ZmZmOTkiLCJzdWIiOiIzMjkxNjI2MDAzNjQ1NDEwIiwic2NvcGUiOiJEYXRhLkV4cG9ydCIsIm5iZiI6MTc3NjcxMTU4NSwiZXhwIjo0OTMwMzExNTg1LCJpYXQiOjE3NzY3MTE1ODUsImlzcyI6ImNsYXJpdHkiLCJhdWQiOiJjbGFyaXR5LmRhdGEtZXhwb3J0ZXIifQ.P-JkeL1pEXZOk5BRV0nqMIPBr9B5p44A6SWi2-4ZNa5QIo46SamKg0Qv4VjmWg5CgTo9NNsGbrLtMctrvhOwYzIpjBTZdjEbZ0GxB230-ppAVa_yFzECe1SSGZAF-R7OiQdkuWKwZovhNASK3Gmao5NA-4w5TJEheHVTAuIyosme4hw4a2AfX5ucAD_p2xMg7P7hbK2yy3KvTtc2J4DQ1iH5Y-CibPLKB5i7_amf6Klg_h4i2d0NIWmPDPDjULm9iR1e7-_guFOwVD6qy8oS_1ICMek8aV3iv-fDQSRilC9QXR6RK4g1bXfmS7V52mUrNBX36IsP7IDysxXwysnfhQ";
+const PROJECT_ID = "wes83zb00y";
 
 async function fetchClarityData() {
+  console.log("CLARITY API CALLED");
   try {
-    const response = await axios.get(
+    const res = await axios.get(
       "https://www.clarity.ms/export-data/api/v1/project-live-insights",
       {
         headers: {
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${API_TOKEN}`
         },
-        params: {
-          projectId: PROJECT_ID,
-        },
+        params: { projectId: PROJECT_ID }
       }
     );
 
-    const data = response.data;
+
+    // console.log("CLARITY FULL:", JSON.stringify(res.data, null, 2));
+    const data = res.data;
+    
+    const scrollObj = data.find(m => m.metricName === "ScrollDepth");
+    const rageObj = data.find(m => m.metricName === "RageClickCount");
+    const deadObj = data.find(m => m.metricName === "DeadClickCount");
 
     return {
-      users: data.totalUsers || 0,
-      sessions: data.totalSessions || 0,
-      pageViews: data.pageViews || 0,
-      bounceRate: data.bounceRate || 0,
-      clicks: data.totalClicks || 0,
-      scrollDepth: data.avgScrollDepth || 0,
+     scrollDepth: Number(scrollObj?.information?.[0]?.averageScrollDepth || 0),
+     rageClicks: Number(rageObj?.information?.[0]?.subTotal || 0),
+     deadClicks: Number(deadObj?.information?.[0]?.subTotal || 0),
+
+      recordings: 0,
+      heatmaps: 0
     };
-  } catch (error) {
-    console.error("Clarity API Error:", error.message);
+
+  } catch (err) {
+    console.error("Clarity Error:", err.message);
+
     return {
-      users: 0,
-      sessions: 0,
-      pageViews: 0,
-      bounceRate: 0,
-      clicks: 0,
       scrollDepth: 0,
+      rageClicks: 0,
+      deadClicks: 0,
+      recordings: 0,
+      heatmaps: 0
     };
   }
 }
